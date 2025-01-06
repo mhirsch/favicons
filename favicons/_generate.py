@@ -115,7 +115,8 @@ class Favicons:
     def _check_source_format(self) -> None:
         """Convert source image to PNG if it's in SVG format."""
         if self._source.suffix == ".svg":
-            self._source = svg_to_png(self._source, self.background_color)
+            bg: Tuple[int, ...] = self.background_color.colors
+            self._source = svg_to_png(self._source, bg, self.transparent)
 
     @staticmethod
     def _get_center_point(background: PILImage, foreground: PILImage) -> Tuple:

@@ -39,24 +39,25 @@ def generate_icon_types() -> Generator[FaviconProperties, None, None]:
             yield FaviconProperties(**icon_type)
 
 
-def svg_to_png(svg_path: Path, background_color: Color) -> Path:
+def svg_to_png(svg_path: Path, background_color: Color, transparent: bool) -> Path:
     """Convert an SVG vector to a PNG file."""
+    import io
     # Third Party
-    from svglib.svglib import svg2rlg
-    from reportlab.graphics import renderPM
-    from reportlab.lib.colors import transparent
+    from cairosvg import svg2png
+    from PIL import Image as PILImage
 
-    _, png_path = mkstemp(suffix=".tiff")
+    _, png_path = mkstemp(suffix=".png")
 
     png = Path(png_path)
 
-    drawing = svg2rlg(str(svg_path))
-    renderPM.drawToFile(
-        drawing,
-        str(png),
-        fmt="TIFF",
-        bg=int(background_color.as_hex().replace("#", ""), 16),
-        configPIL={"transparent": transparent},
-    )
+    png_bytes = svg2png(svg_path.read_bytes())
+    if transparent:
+        png.write_bytes(png_bytes)
+    else:
+        with PILImage.open(io.BytesIO(png_bytes)) as src:
+            bg_image = PILImage.new("RGBA", src.size, background_color)
+            composite = PILImage.alpha_composite(bg_image, src)
+
+        composite.save(str(png))
 
     return png
