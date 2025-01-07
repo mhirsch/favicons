@@ -27,7 +27,7 @@ typer = "^0.9.0"
 cairosvg = "^2.7.0"
 
 [tool.poetry.scripts]
-favicons = "favicons:cli"
+favicons = "favicons.cli:cli"
 
 [tool.poetry.group.dev.dependencies]
 black = "^24.2.0"
