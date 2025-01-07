@@ -125,7 +125,7 @@ class Favicons:
             bg: Tuple[int, ...] = self.background_color.colors + ((255,),(0,))[self.transparent]
 
             # Composite source image on top of background color.
-            src = PILImage.alpha_composite(PILImage.new("RGBA", src.size, bg), src)
+            src = PILImage.alpha_composite(PILImage.new("RGBA", src.size, bg), src.convert("RGBA"))
 
             # Resize source image without changing aspect ratio, and pad with bg color.
             src = ImageOps.pad(src, size=format_properties.dimensions, color=bg)
