@@ -20,6 +20,7 @@ from pathlib import Path
 
 # Third Party
 from PIL import Image as PILImage
+from PIL import ImageOps
 
 # Project
 from favicons._util import svg_to_png, validate_path, generate_icon_types
@@ -115,40 +116,22 @@ class Favicons:
     def _check_source_format(self) -> None:
         """Convert source image to PNG if it's in SVG format."""
         if self._source.suffix == ".svg":
-            bg: Tuple[int, ...] = self.background_color.colors
-            self._source = svg_to_png(self._source, bg, self.transparent)
-
-    @staticmethod
-    def _get_center_point(background: PILImage, foreground: PILImage) -> Tuple:
-        """Generate a tuple of center points for PIL."""
-        bg_x, bg_y = background.size[0:2]
-        fg_x, fg_y = foreground.size[0:2]
-        x1 = math.floor((bg_x / 2) - (fg_x / 2))
-        y1 = math.floor((bg_y / 2) - (fg_y / 2))
-        x2 = math.floor((bg_x / 2) + (fg_x / 2))
-        y2 = math.floor((bg_y / 2) + (fg_y / 2))
-        return (x1, y1, x2, y2)
+            self._source = svg_to_png(self._source)
 
     def _generate_single(self, format_properties: FaviconProperties) -> None:
         with PILImage.open(self.source) as src:
             output_file = self.output_directory / str(format_properties)
-            bg: Tuple[int, ...] = self.background_color.colors
-
             # If transparency is enabled, add alpha channel to color.
-            if self.transparent:
-                bg += (0,)
+            bg: Tuple[int, ...] = self.background_color.colors + ((255,),(0,))[self.transparent]
 
-            # Create background.
-            dst = PILImage.new("RGBA", format_properties.dimensions, bg)
+            # Composite source image on top of background color.
+            src = PILImage.alpha_composite(PILImage.new("RGBA", src.size, bg), src)
 
-            # Resize source image without changing aspect ratio.
-            src.thumbnail(format_properties.dimensions)
-
-            # Place source image on top of background image.
-            dst.paste(src, box=self._get_center_point(dst, src))
+            # Resize source image without changing aspect ratio, and pad with bg color.
+            src = ImageOps.pad(src, size=format_properties.dimensions, color=bg)
 
             # Save new file.
-            dst.save(output_file, format_properties.image_fmt)
+            src.save(output_file, format_properties.image_fmt)
 
             self.completed += 1
 

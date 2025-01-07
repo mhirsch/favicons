@@ -39,7 +39,7 @@ def generate_icon_types() -> Generator[FaviconProperties, None, None]:
             yield FaviconProperties(**icon_type)
 
 
-def svg_to_png(svg_path: Path, background_color: Color, transparent: bool) -> Path:
+def svg_to_png(svg_path: Path) -> Path:
     """Convert an SVG vector to a PNG file."""
     import io
     # Third Party
@@ -50,14 +50,6 @@ def svg_to_png(svg_path: Path, background_color: Color, transparent: bool) -> Pa
 
     png = Path(png_path)
 
-    png_bytes = svg2png(svg_path.read_bytes())
-    if transparent:
-        png.write_bytes(png_bytes)
-    else:
-        with PILImage.open(io.BytesIO(png_bytes)) as src:
-            bg_image = PILImage.new("RGBA", src.size, background_color)
-            composite = PILImage.alpha_composite(bg_image, src)
-
-        composite.save(str(png))
+    png.write_bytes(svg2png(svg_path.read_bytes()))
 
     return png
