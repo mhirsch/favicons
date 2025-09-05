@@ -55,6 +55,7 @@ class Favicons:
         self.generate: Union[Callable, Coroutine] = self.sgenerate
         self.completed: int = 0
         self._temp_source: Optional[Path] = None
+        self._svg_input = False
 
         if isinstance(source, str):
             source = Path(source)
@@ -62,6 +63,14 @@ class Favicons:
         self._source = source
 
         self._check_source_format()
+
+    def __del__(self):
+        print("class destructor called")
+        if self._svg_input:
+            try:
+                self._source.unlink()
+            except OSError as e:
+                print(f"Error removing temporary png generated from svg input: '{self._source}': {e}")
 
     def _validate(self) -> None:
 
@@ -116,6 +125,7 @@ class Favicons:
     def _check_source_format(self) -> None:
         """Convert source image to PNG if it's in SVG format."""
         if self._source.suffix == ".svg":
+            self._svg_input = True
             self._source = svg_to_png(self._source)
 
     def _generate_single(self, format_properties: FaviconProperties) -> None:
