@@ -2,8 +2,8 @@
 
 # Standard Library
 import json as _json
-import math
 import asyncio
+import struct
 from types import TracebackType
 from typing import (
     Any,
@@ -19,8 +19,7 @@ from typing import (
 from pathlib import Path
 
 # Third Party
-from PIL import Image as PILImage
-from PIL import ImageOps
+import pyvips
 
 # Project
 from favicons._util import svg_to_png, validate_path, generate_icon_types
@@ -61,19 +60,14 @@ class Favicons:
             source = Path(source)
 
         self._source = source
-
         self._check_source_format()
 
-    def __del__(self):
-        print("class destructor called")
-        if self._svg_input:
-            try:
-                self._source.unlink()
-            except OSError as e:
-                print(f"Error removing temporary png generated from svg input: '{self._source}': {e}")
+    def __del__(self) -> None:
+        """Clean up temporary files on destruction."""
+        self._close_temp_source()
 
     def _validate(self) -> None:
-
+        """Validate source and output paths."""
         self.source = validate_path(self._source)
         self.output_directory = validate_path(self._output_directory, create=True)
 
@@ -96,10 +90,9 @@ class Favicons:
     ) -> None:
         """Exit Favicons context."""
         self._close_temp_source()
-        pass
 
     async def __aenter__(self) -> "Favicons":
-        """Enter Favicons context."""
+        """Enter Favicons async context."""
         self._validate()
         self.generate = self.agenerate
         return self
@@ -110,48 +103,86 @@ class Favicons:
         exc_value: Optional[BaseException] = None,
         traceback: Optional[TracebackType] = None,
     ) -> None:
-        """Exit Favicons context."""
+        """Exit Favicons async context."""
         self._close_temp_source()
-        pass
 
     def _close_temp_source(self) -> None:
         """Close temporary file if it exists."""
-        if self._temp_source is not None:
+        if self._svg_input and self._source.exists():
             try:
-                self._temp_source.unlink()
-            except FileNotFoundError:
+                self._source.unlink()
+            except OSError:
                 pass
 
     def _check_source_format(self) -> None:
         """Convert source image to PNG if it's in SVG format."""
-        if self._source.suffix == ".svg":
+        if self._source.suffix.lower() == ".svg":
             self._svg_input = True
+            # We convert to a temporary PNG because while vips can load SVG,
+            # some systems may not have librsvg linked.
             self._source = svg_to_png(self._source)
 
     def _generate_single(self, format_properties: FaviconProperties) -> None:
-        with PILImage.open(self.source) as src:
-            output_file = self.output_directory / str(format_properties)
-            # If transparency is enabled, add alpha channel to color.
-            bg: Tuple[int, ...] = self.background_color.colors + ((255,),(0,))[self.transparent]
+        """Generate a single favicon using pyvips."""
+        output_file = self.output_directory / str(format_properties)
+        width, height = format_properties.dimensions
 
-            # Composite source image on top of background color.
-            src = PILImage.alpha_composite(PILImage.new("RGBA", src.size, bg), src.convert("RGBA"))
+        # Handle background color and transparency
+        # pyvips uses 0-255 scale
+        alpha_val = 0 if self.transparent else 255
+        bg_color = list(self.background_color.colors) + [alpha_val]
 
-            # Resize source image without changing aspect ratio, and pad with bg color.
-            src = ImageOps.pad(src, size=format_properties.dimensions, color=bg)
+        # Resize the source image (maintaining aspect ratio)
+        # 'force' is not used here because we want to center-pad inside target dims
+        thumb = pyvips.Image.thumbnail(str(self.source), width, height=height)
 
-            # Save new file.
-            src.save(output_file, format_properties.image_fmt)
+        # Ensure thumbnail has an alpha channel and is explicitly in sRGB space
+        if not thumb.hasalpha():
+            thumb = thumb.addalpha()
+        if thumb.interpretation != 'srgb':
+            thumb = thumb.colourspace('srgb')
 
-            self.completed += 1
+        # Create a background canvas and explicitly set its interpretation and format
+        background = (pyvips.Image.black(width, height) + bg_color).cast(thumb.format).copy(interpretation='srgb')
+
+        # Calculate centering offsets
+        left = (width - thumb.width) // 2
+        top = (height - thumb.height) // 2
+
+        # Composite thumbnail over background
+        final = background.composite2(thumb, 'over', x=left, y=top)
+
+        # Save result.
+        if output_file.suffix.lower() == ".ico":
+            try:
+                # Attempt to save directly (works if libvips has magicksave support)
+                final.write_to_file(str(output_file))
+            except pyvips.error.Error:
+                # Fallback: Write as PNG into memory, then manually package into an ICO container format
+                png_buffer = final.write_to_buffer(".png")
+
+                # Windows ICO format requires dimensions 256 or larger to be mapped as 0
+                ico_w = 0 if width >= 256 else width
+                ico_h = 0 if height >= 256 else height
+
+                # ICO Header: 0 (reserved), 1 (ICO type), 1 (number of images)
+                header = struct.pack("<HHH", 0, 1, 1)
+
+                # ICO Directory Entry: w, h, palette(0), reserved(0), planes(1), bpp(32), size, offset(22)
+                directory = struct.pack("<BBBBHHII", ico_w, ico_h, 0, 0, 1, 32, len(png_buffer), 22)
+
+                output_file.write_bytes(header + directory + png_buffer)
+        else:
+            final.write_to_file(str(output_file))
+
+        self.completed += 1
 
     async def _agenerate_single(self, format_properties: FaviconProperties) -> None:
         """Awaitable version of _generate_single."""
-
-        return self._generate_single(format_properties)
+        await asyncio.to_thread(self._generate_single, format_properties)
 
     def sgenerate(self) -> None:
-        """Generate favicons."""
+        """Generate favicons synchronously."""
         if not self._validated:
             self._validate()
 
@@ -159,7 +190,7 @@ class Favicons:
             self._generate_single(fmt)
 
     async def agenerate(self) -> None:
-        """Generate favicons."""
+        """Generate favicons asynchronously."""
         if not self._validated:
             self._validate()
 

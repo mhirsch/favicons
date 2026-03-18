@@ -3,7 +3,6 @@
 # Standard Library
 from typing import Union, Mapping, Generator
 from pathlib import Path
-from tempfile import mkstemp
 
 # Project
 from favicons._types import Color, FaviconProperties
@@ -40,16 +39,14 @@ def generate_icon_types() -> Generator[FaviconProperties, None, None]:
 
 
 def svg_to_png(svg_path: Path) -> Path:
-    """Convert an SVG vector to a PNG file."""
-    import io
-    # Third Party
-    from cairosvg import svg2png
-    from PIL import Image as PILImage
+    """Convert an SVG vector to a PNG file using pyvips."""
+    import pyvips
+    from tempfile import mkstemp
 
     _, png_path = mkstemp(suffix=".png")
-
     png = Path(png_path)
 
-    png.write_bytes(svg2png(svg_path.read_bytes()))
+    image = pyvips.Image.new_from_file(str(svg_path), dpi=72)
+    image.write_to_file(str(png))
 
     return png
